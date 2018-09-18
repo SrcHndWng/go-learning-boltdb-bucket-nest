@@ -2,90 +2,92 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/boltdb/bolt"
 )
 
 const dbFile = "sample.db"
-const rootBucket = "root"
-const subBucket1 = "sub1"
-const subBucket2 = "sub2"
+const rootBucket = "users"
+const tomBucket = "Tom"
+const kenBucket = "Ken"
 
 func main() {
-	fmt.Println("main start...")
-
 	db, err := bolt.Open(dbFile, 0600, nil)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer db.Close()
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		insertSubBucket := func(sub *bolt.Bucket, data string) error {
-			id, err := sub.NextSequence()
-			if err != nil {
-				return err
-			}
-			err = sub.Put(keybytes(id), []byte(data))
-			if err != nil {
-				return err
-			}
-			return nil
-		}
+	err = insert(db)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		// create root bucket.
-		root, err := tx.CreateBucketIfNotExists([]byte(rootBucket))
-		if err != nil {
-			return err
-		}
-
-		// create sub bucket 1 and register data.
-		sub1, err := root.CreateBucketIfNotExists([]byte(subBucket1))
-		if err != nil {
-			return err
-		}
-		fmt.Printf("insert data to %s...\n", subBucket1)
-		err = insertSubBucket(sub1, "value1")
-		if err != nil {
-			return err
-		}
-
-		// create sub bucket 2 and register data.
-		sub2, err := root.CreateBucketIfNotExists([]byte(subBucket2))
-		if err != nil {
-			return err
-		}
-		fmt.Printf("insert data to %s...\n", subBucket2)
-		err = insertSubBucket(sub2, "value1")
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-
-	err = db.View(func(tx *bolt.Tx) error {
-		root := tx.Bucket([]byte(rootBucket))
-
-		readSubBucket := func(subBucket string) {
-			sub := root.Bucket([]byte(subBucket))
-			c := sub.Cursor()
-			for k, v := c.First(); k != nil; k, v = c.Next() {
-				fmt.Printf("key : %v, value : %s\n", k, string(v))
-			}
-		}
-
-		fmt.Printf("print data from %s...\n", subBucket1)
-		readSubBucket(subBucket1)
-		fmt.Printf("print data from %s...\n", subBucket2)
-		readSubBucket(subBucket2)
-
-		return nil
-	})
-
-	fmt.Println("main end...")
+	err = reference(db)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func keybytes(u uint64) []byte {
-	return []byte(string(u))
+func insert(db *bolt.DB) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		// create root bucket.
+		users, err := tx.CreateBucketIfNotExists([]byte(rootBucket))
+		if err != nil {
+			return err
+		}
+
+		// create nested bucket.
+		tom, err := users.CreateBucketIfNotExists([]byte(tomBucket))
+		if err != nil {
+			return err
+		}
+
+		// insert.
+		err = tom.Put([]byte("key1"), []byte("tom's todo"))
+		if err != nil {
+			return err
+		}
+
+		// create nested bucket.
+		ken, err := users.CreateBucketIfNotExists([]byte(kenBucket))
+		if err != nil {
+			return err
+		}
+
+		// insert.
+		err = ken.Put([]byte("key1"), []byte("ken's todo1"))
+		if err != nil {
+			return err
+		}
+		err = ken.Put([]byte("key2"), []byte("ken's todo2"))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func reference(db *bolt.DB) error {
+	return db.View(func(tx *bolt.Tx) error {
+		users := tx.Bucket([]byte(rootBucket))
+
+		// select from nested bucket.
+		tom := users.Bucket([]byte(tomBucket))
+		c := tom.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			fmt.Printf("key:%v, value:%s\n", k, string(v))
+		}
+
+		// select from nested bucket.
+		ken := users.Bucket([]byte(kenBucket))
+		c = ken.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			fmt.Printf("key:%v, value:%s\n", k, string(v))
+		}
+
+		return nil
+	})
 }
